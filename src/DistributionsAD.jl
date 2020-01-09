@@ -26,13 +26,18 @@ import Distributions: MvNormal,
                       quantile, 
                       PoissonBinomial
 
-export TuringDiagNormal,
-       TuringMvNormal,
+export TuringScalMvNormal,
+       TuringDiagMvNormal,
+       TuringDenseMvNormal,
        TuringMvLogNormal,
-       TuringPoissonBinomial
+       TuringPoissonBinomial,
+       Multi,
+       ArrayDist
 
 include("common.jl")
 include("univariate.jl")
 include("multivariate.jl")
+include("multi.jl")
+include("array_dist.jl")
 
 end
