@@ -134,7 +134,7 @@ separator()
         DistSpec(:TriangularDist, (1, 2), 1.5),
         DistSpec(:TriangularDist, (1, 3, 2), 1.5),
         DistSpec(:Triweight, (1, 1), 1),
-        DistSpec(:((mu, sigma, l, u) -> Truncated(Normal(mu, sigma), l, u)), (0.0, 1.0, 1.0, 2.0), 1.5),
+        DistSpec(:((mu, sigma, l, u) -> truncated(Normal(mu, sigma), l, u)), (0.0, 1.0, 1.0, 2.0), 1.5),
         DistSpec(:Uniform, (), 0.5),
         DistSpec(:Uniform, (0, 1), 0.5),
         DistSpec(:VonMises, (), 1),

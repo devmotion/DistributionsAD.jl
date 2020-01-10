@@ -1,45 +1,91 @@
 ## Uniform ##
 
 logpdf(d::Uniform, x::TrackedReal) = uniformlogpdf(d.a, d.b, x)
-uniformlogpdf(a, b, x) = Tracker.track(uniformlogpdf, a, b, x)
-Tracker.@grad function uniformlogpdf(a, b, x)
-    xd = Tracker.data(x)
-    T = typeof(xd)
-    l = logpdf(Uniform(a, b), Tracker.data(x))
+logpdf(d::Uniform{<:TrackedReal}, x::Real) = uniformlogpdf(d.a, d.b, x)
+function logpdf(d::Uniform{<:TrackedReal}, x::TrackedReal)
+    return uniformlogpdf(d.a, d.b, x)
+end
+uniformlogpdf(a::Real, b::Real, x::Real) = logpdf(Uniform(a, b), x)
+function uniformlogpdf(a::Real, b::Real, x::TrackedReal)
+    track(uniformlogpdf, a, b, x)
+end
+function uniformlogpdf(a::TrackedReal, b::TrackedReal, x::Real)
+    track(uniformlogpdf, a, b, x)
+end
+function uniformlogpdf(
+    a::TrackedReal,
+    b::TrackedReal,
+    x::TrackedReal,
+)
+    track(uniformlogpdf, a, b, x)
+end
+@grad function uniformlogpdf(
+    a::Real,
+    b::Real,
+    x::TrackedReal,
+)
+    xd = data(x)
+    T = typeof(x)
+    l = logpdf(Uniform(a, b), xd)
     f = isfinite(l)
-    da = 1/(b - a)
     n = T(NaN)
-    return l, Δ->(f ? da : n, f ? -da : n, f ? zero(T) : n)
+    z = zero(T)
+    return l, Δ -> (f ? (z, z, z) : (n, n, n))
+end
+for T in (:TrackedReal, :Real)
+    @eval @grad function uniformlogpdf(
+        a::TrackedReal,
+        b::TrackedReal,
+        x::$T,
+    )
+        ad = data(a)
+        bd = data(b)
+        T = typeof(a)
+        l = logpdf(Uniform(ad, bd), x)
+        f = isfinite(l)
+        temp = 1/(bd - ad)^2
+        dlda = temp
+        dldb = -temp
+        n = T(NaN)
+        z = zero(T)
+        return l, Δ -> (f ? (dlda * Δ, dldb * Δ, z) : (n, n, n))
+    end
 end
 
 ## Semicircle ##
 
+function semicircle_dldr(r, x)
+    diffsq = r^2 - x^2
+    return -2 / r + r / diffsq
+end
+function semicircle_dldx(r, x)
+    diffsq = r^2 - x^2
+    return -x / diffsq
+end
+
 logpdf(d::Semicircle{<:Real}, x::TrackedReal) = semicirclelogpdf(d.r, x)
 logpdf(d::Semicircle{<:TrackedReal}, x::Real) = semicirclelogpdf(d.r, x)
 logpdf(d::Semicircle{<:TrackedReal}, x::TrackedReal) = semicirclelogpdf(d.r, x)
-semicirclelogpdf(r::TrackedReal, x::Real) = Tracker.track(semicirclelogpdf, r, x)
-semicirclelogpdf(r::Real, x::TrackedReal) = Tracker.track(semicirclelogpdf, r, x)
-semicirclelogpdf(r::TrackedReal, x::TrackedReal) = Tracker.track(semicirclelogpdf, r, x)
-Tracker.@grad function semicirclelogpdf(r, x)
-    rd = Tracker.data(r)
-    xd = Tracker.data(x)
-    xx, rr = promote(xd, float(rd))
-    d = Semicircle(rr)
-    T = typeof(xx)
-    l = logpdf(d, xx)
-    f = isfinite(l)
-    n = T(NaN)
-    return l, function (Δ) 
-        diffsq = rr^2 - xx^2
-        (f ? Δ*(-2/rr + rr/diffsq) : n, f ? Δ*(-xx/diffsq) : n)
-    end
+
+semicirclelogpdf(r, x) = logpdf(Semicircle(r), x)
+M, f, arity = DiffRules.@define_diffrule DistributionsAD.semicirclelogpdf(r, x) =
+    :(semicircle_dldr($r, $x)), :(semicircle_dldx($r, $x))
+da, db = DiffRules.diffrule(M, f, :a, :b)
+f = :($M.$f)
+@eval begin
+    @grad $f(a::TrackedReal, b::TrackedReal) = $f(data(a), data(b)), Δ -> (Δ * $da, Δ * $db)
+    @grad $f(a::TrackedReal, b::Real) = $f(data(a), b), Δ -> (Δ * $da, _zero(b))
+    @grad $f(a::Real, b::TrackedReal) = $f(a, data(b)), Δ -> (_zero(a), Δ * $db)
+    $f(a::TrackedReal, b::TrackedReal)  = track($f, a, b)
+    $f(a::TrackedReal, b::Real) = track($f, a, b)
+    $f(a::Real, b::TrackedReal) = track($f, a, b)
 end
 
 ## Binomial ##
 
-binomlogpdf(n::Int, p::Tracker.TrackedReal, x::Int) = Tracker.track(binomlogpdf, n, p, x)
-Tracker.@grad function binomlogpdf(n::Int, p::Tracker.TrackedReal, x::Int)
-    return binomlogpdf(n, Tracker.data(p), x),
+binomlogpdf(n::Int, p::TrackedReal, x::Int) = track(binomlogpdf, n, p, x)
+@grad function binomlogpdf(n::Int, p::TrackedReal, x::Int)
+    return binomlogpdf(n, data(p), x),
         Δ->(nothing, Δ * (x / p - (n - x) / (1 - p)), nothing)
 end
 
@@ -58,30 +104,31 @@ end
 _nbinomlogpdf_grad_1(r, p, k) = k == 0 ? log(p) : sum(1 / (k + r - i) for i in 1:k) + log(p)
 _nbinomlogpdf_grad_2(r, p, k) = -k / (1 - p) + r / p
 
-nbinomlogpdf(n::Tracker.TrackedReal, p::Tracker.TrackedReal, x::Int) = Tracker.track(nbinomlogpdf, n, p, x)
-nbinomlogpdf(n::Real, p::Tracker.TrackedReal, x::Int) = Tracker.track(nbinomlogpdf, n, p, x)
-nbinomlogpdf(n::Tracker.TrackedReal, p::Real, x::Int) = Tracker.track(nbinomlogpdf, n, p, x)
-Tracker.@grad function nbinomlogpdf(r::Tracker.TrackedReal, p::Tracker.TrackedReal, k::Int)
-    return nbinomlogpdf(Tracker.data(r), Tracker.data(p), k),
+nbinomlogpdf(n::TrackedReal, p::TrackedReal, x::Int) = track(nbinomlogpdf, n, p, x)
+nbinomlogpdf(n::Real, p::TrackedReal, x::Int) = track(nbinomlogpdf, n, p, x)
+nbinomlogpdf(n::TrackedReal, p::Real, x::Int) = track(nbinomlogpdf, n, p, x)
+@grad function nbinomlogpdf(r::TrackedReal, p::TrackedReal, k::Int)
+    return nbinomlogpdf(data(r), data(p), k),
         Δ->(Δ * _nbinomlogpdf_grad_1(r, p, k), Δ * _nbinomlogpdf_grad_2(r, p, k), nothing)
 end
-Tracker.@grad function nbinomlogpdf(r::Real, p::Tracker.TrackedReal, k::Int)
-    return nbinomlogpdf(Tracker.data(r), Tracker.data(p), k),
-        Δ->(Tracker._zero(r), Δ * _nbinomlogpdf_grad_2(r, p, k), nothing)
+@grad function nbinomlogpdf(r::Real, p::TrackedReal, k::Int)
+    return nbinomlogpdf(data(r), data(p), k),
+        Δ->(_zero(r), Δ * _nbinomlogpdf_grad_2(r, p, k), nothing)
 end
-Tracker.@grad function nbinomlogpdf(r::Tracker.TrackedReal, p::Real, k::Int)
-    return nbinomlogpdf(Tracker.data(r), Tracker.data(p), k),
-        Δ->(Δ * _nbinomlogpdf_grad_1(r, p, k), Tracker._zero(p), nothing)
+@grad function nbinomlogpdf(r::TrackedReal, p::Real, k::Int)
+    return nbinomlogpdf(data(r), data(p), k),
+        Δ->(Δ * _nbinomlogpdf_grad_1(r, p, k), _zero(p), nothing)
 end
 
 function nbinomlogpdf(r::ForwardDiff.Dual{T}, p::ForwardDiff.Dual{T}, k::Int) where {T}
     FD = ForwardDiff.Dual{T}
     val_p = ForwardDiff.value(p)
     val_r = ForwardDiff.value(r)
-
-    Δ_r = ForwardDiff.partials(r) * _nbinomlogpdf_grad_1(val_r, val_p, k)
-    Δ_p = ForwardDiff.partials(p) * _nbinomlogpdf_grad_2(val_r, val_p, k)
-    Δ = Δ_p + Δ_r
+    Δ_r = ForwardDiff.partials(r)
+    dr = _nbinomlogpdf_grad_1(val_r, val_p, k)
+    Δ_p = ForwardDiff.partials(p)
+    dp = _nbinomlogpdf_grad_2(val_r, val_p, k)
+    Δ = ForwardDiff._mul_partials(Δ_r, Δ_p, dr, dp)
     return FD(nbinomlogpdf(val_r, val_p, k),  Δ)
 end
 function nbinomlogpdf(r::Real, p::ForwardDiff.Dual{T}, k::Int) where {T}
@@ -99,9 +146,9 @@ end
 
 ## Poisson ##
 
-poislogpdf(v::Tracker.TrackedReal, x::Int) = Tracker.track(poislogpdf, v, x)
-Tracker.@grad function poislogpdf(v::Tracker.TrackedReal, x::Int)
-      return poislogpdf(Tracker.data(v), x),
+poislogpdf(v::TrackedReal, x::Int) = track(poislogpdf, v, x)
+@grad function poislogpdf(v::TrackedReal, x::Int)
+      return poislogpdf(data(v), x),
           Δ->(Δ * (x/v - 1), nothing)
 end
 
@@ -127,13 +174,13 @@ function logpdf(d::TuringPoissonBinomial{T}, k::Int) where T<:Real
     insupport(d, k) ? log(d.pmf[k + 1]) : -T(Inf)
 end
 quantile(d::TuringPoissonBinomial, x::Float64) = quantile(Categorical(d.pmf), x) - 1
-PoissonBinomial(p::Tracker.TrackedArray) = TuringPoissonBinomial(p)
+PoissonBinomial(p::TrackedArray) = TuringPoissonBinomial(p)
 Base.minimum(d::TuringPoissonBinomial) = 0
 Base.maximum(d::TuringPoissonBinomial) = length(d.p)
 
-poissonbinomial_pdf_fft(x::Tracker.TrackedArray) = Tracker.track(poissonbinomial_pdf_fft, x)
-Tracker.@grad function poissonbinomial_pdf_fft(x::Tracker.TrackedArray)
-    x_data = Tracker.data(x)
+poissonbinomial_pdf_fft(x::TrackedArray) = track(poissonbinomial_pdf_fft, x)
+@grad function poissonbinomial_pdf_fft(x::TrackedArray)
+    x_data = data(x)
     T = eltype(x_data)
     fft = poissonbinomial_pdf_fft(x_data)
     return  fft, Δ -> begin

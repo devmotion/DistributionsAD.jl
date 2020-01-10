@@ -9,10 +9,13 @@ using PDMats,
       Random, 
       Combinatorics
 
-using Tracker: TrackedReal
+using Tracker: TrackedReal, TrackedVector, TrackedMatrix, TrackedArray, 
+                _zero, @grad, data, track
 using LinearAlgebra: copytri!
 using Distributions: AbstractMvLogNormal, 
                      ContinuousMultivariateDistribution
+using DiffRules, SpecialFunctions
+using ForwardDiff: @define_binary_dual_op # Needed for `eval`ing diffrules here
 
 import StatsFuns: logsumexp, 
                   binomlogpdf, 
@@ -38,6 +41,7 @@ include("common.jl")
 include("univariate.jl")
 include("multivariate.jl")
 include("multi.jl")
+include("flatten.jl")
 include("array_dist.jl")
 
 end
